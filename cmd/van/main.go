@@ -39,8 +39,8 @@ func main() {
 			panic(err)
 		}
 	}
-	l, err := net.Listen("unix", sockFile)
 
+	l, err := net.Listen("unix", sockFile)
 	if err != nil {
 		panic(err)
 	}
