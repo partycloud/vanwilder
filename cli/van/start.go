@@ -68,7 +68,7 @@ var VanStartCommand = cli.Command{
 
 		sigs := make(chan os.Signal, 1)
 		done := make(chan bool, 1)
-		events := make(chan vanwilder.Status, 100)
+		events := make(chan interface{}, 100)
 
 		signal.Notify(sigs, os.Interrupt, os.Kill, syscall.SIGTERM)
 		go func() {
@@ -84,27 +84,27 @@ var VanStartCommand = cli.Command{
 				if err != nil {
 					panic(err)
 				}
-				commands := make(chan vanwilder.Command)
+				requests := make(chan vanwilder.Req)
 				go func() {
 					for {
 						dec := json.NewDecoder(conn)
 						for {
-							var cmd vanwilder.Command
-							if err := dec.Decode(&cmd); err == io.EOF {
+							var req vanwilder.Req
+							if err := dec.Decode(&req); err == io.EOF {
 								break
 							} else if err != nil {
 								panic(err)
 							}
 
-							commands <- cmd
+							requests <- req
 						}
 					}
 				}()
 
 				for {
 					select {
-					case cmd := <-commands:
-						go cmd.Execute(events)
+					case req := <-requests:
+						go req.Process(events)
 					case event := <-events:
 						b, _ := json.Marshal(event)
 						conn.Write(b)

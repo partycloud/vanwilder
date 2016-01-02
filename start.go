@@ -7,33 +7,13 @@ import (
 	"github.com/fsouza/go-dockerclient"
 )
 
-type Status struct {
-	ID    string
-	State string
+type Start struct {
 }
 
-type Command struct {
-	Command string
-	CmdArgs string `json:"cmd-args"`
-	Game    string
-	ID      string
-	Ports   []docker.Port
-	Volume  string
-}
+func (s *Start) Execute(r *Req, events chan interface{}) error {
+	portBindings := make(map[docker.Port][]docker.PortBinding, len(r.Ports))
 
-func (c *Command) Execute(events chan Status) {
-	switch c.Command {
-	case "start-game":
-		c.StartGame(events)
-	case "stop-game":
-		c.StopGame(events)
-	}
-}
-
-func (c *Command) StartGame(events chan Status) {
-	portBindings := make(map[docker.Port][]docker.PortBinding, len(c.Ports))
-
-	for _, guest := range c.Ports {
+	for _, guest := range r.Ports {
 		parts := strings.Split(string(guest), "/")
 		portBindings[guest] = []docker.PortBinding{
 			docker.PortBinding{
@@ -46,14 +26,14 @@ func (c *Command) StartGame(events chan Status) {
 		PortBindings: portBindings,
 	}
 
-	if c.Volume != "" {
+	if r.Volume != "" {
 		hostConfig.VolumeDriver = "convoy"
-		hostConfig.Binds = []string{c.Volume + ":/data:rw"}
+		hostConfig.Binds = []string{r.Volume + ":/data:rw"}
 	}
 
-	container, err := c.createContainer()
+	container, err := s.createContainer(r.Game, r.CmdArgs)
 	if err != nil {
-		panic(err)
+		return err
 	}
 	log.WithFields(log.Fields{
 		"ID": container.ID,
@@ -66,7 +46,7 @@ func (c *Command) StartGame(events chan Status) {
 	client, _ := docker.NewClientFromEnv()
 	err = client.StartContainer(container.ID, hostConfig)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	log.WithFields(log.Fields{
@@ -88,51 +68,19 @@ func (c *Command) StartGame(events chan Status) {
 	// if err != nil {
 	// 	panic(err)
 	// }
+
+	return nil
 }
 
-func (c *Command) StopGame(events chan Status) {
-	client, _ := docker.NewClientFromEnv()
-
-	log.WithFields(log.Fields{
-		"container": c.ID,
-	}).Info("stopping")
-	events <- Status{
-		ID:    c.ID,
-		State: "stopping",
-	}
-
-	err := client.StopContainer(c.ID, 60)
-	if err != nil {
-		panic(err)
-	}
-
-	err = client.RemoveContainer(docker.RemoveContainerOptions{
-		ID:            c.ID,
-		RemoveVolumes: false,
-		Force:         true,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	log.WithFields(log.Fields{
-		"container": c.ID,
-	}).Info("stopped")
-	events <- Status{
-		ID:    c.ID,
-		State: "stopped",
-	}
-}
-
-func (c *Command) createContainer() (*docker.Container, error) {
+func (s *Start) createContainer(game, cmdArgs string) (*docker.Container, error) {
 	client, _ := docker.NewClientFromEnv()
 
 	createOptions := docker.CreateContainerOptions{
 		Name: "game-1",
 		Config: &docker.Config{
 			AttachStdout: true,
-			Cmd:          strings.Split(c.CmdArgs, " "),
-			Image:        c.Game,
+			Cmd:          strings.Split(cmdArgs, " "),
+			Image:        game,
 		},
 	}
 
