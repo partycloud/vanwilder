@@ -5,22 +5,20 @@ import (
 	"github.com/fsouza/go-dockerclient"
 )
 
-type Stop struct {
-	ID string
-}
+type Stop struct{}
 
 func (s *Stop) Execute(r *Req, events chan interface{}) error {
 	client, _ := docker.NewClientFromEnv()
 
 	log.WithFields(log.Fields{
-		"container": s.ID,
+		"container": r.ID,
 	}).Info("stopping")
 	events <- Status{
-		ID:    s.ID,
+		ID:    r.ID,
 		State: "stopping",
 	}
 
-	err := client.StopContainer(s.ID, 60)
+	err := client.StopContainer(r.ID, 60)
 	if err != nil {
 		return err
 	}
