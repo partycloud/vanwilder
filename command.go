@@ -1,48 +1,80 @@
 package vanwilder
 
 import (
+	"strings"
+
 	log "github.com/Sirupsen/logrus"
 	"github.com/fsouza/go-dockerclient"
 )
 
+type Status struct {
+	ID    string
+	State string
+}
+
 type Command struct {
 	Command string
 	CmdArgs string `json:"cmd-args"`
-	Id      string
 	Game    string
+	ID      string
+	Ports   []docker.Port
 	Volume  string
 }
 
-func (c *Command) Execute() {
+func (c *Command) Execute(events chan Status) {
 	switch c.Command {
 	case "start-game":
-		c.StartGame()
+		c.StartGame(events)
 	case "stop-game":
-		c.StopGame()
+		c.StopGame(events)
 	}
 }
 
-func (c *Command) StartGame() {
-	var port docker.Port
-	port = "25565/tcp"
-	portBinding := []docker.PortBinding{docker.PortBinding{HostPort: "25565"}}
-	portBindings := make(map[docker.Port][]docker.PortBinding)
-	portBindings[port] = portBinding
+func (c *Command) StartGame(events chan Status) {
+	portBindings := make(map[docker.Port][]docker.PortBinding, len(c.Ports))
+
+	for _, guest := range c.Ports {
+		parts := strings.Split(string(guest), "/")
+		portBindings[guest] = []docker.PortBinding{
+			docker.PortBinding{
+				HostPort: parts[0],
+			},
+		}
+	}
+
 	hostConfig := &docker.HostConfig{
-		Binds:        []string{c.Volume + ":/data:rw"},
 		PortBindings: portBindings,
-		VolumeDriver: "convoy",
+	}
+
+	if c.Volume != "" {
+		hostConfig.VolumeDriver = "convoy"
+		hostConfig.Binds = []string{c.Volume + ":/data:rw"}
 	}
 
 	container, err := c.createContainer()
 	if err != nil {
 		panic(err)
 	}
+	log.WithFields(log.Fields{
+		"ID": container.ID,
+	}).Info("starting")
+	events <- Status{
+		ID:    container.ID,
+		State: "starting",
+	}
 
 	client, _ := docker.NewClientFromEnv()
 	err = client.StartContainer(container.ID, hostConfig)
 	if err != nil {
 		panic(err)
+	}
+
+	log.WithFields(log.Fields{
+		"ID": container.ID,
+	}).Info("started")
+	events <- Status{
+		ID:    container.ID,
+		State: "started",
 	}
 
 	// fmt.Println(container)
@@ -58,19 +90,37 @@ func (c *Command) StartGame() {
 	// }
 }
 
-func (c *Command) StopGame() {
+func (c *Command) StopGame(events chan Status) {
 	client, _ := docker.NewClientFromEnv()
 
 	log.WithFields(log.Fields{
-		"ID": c.Id,
+		"container": c.ID,
 	}).Info("stopping")
-	err := client.RemoveContainer(docker.RemoveContainerOptions{
-		ID:            c.Id,
+	events <- Status{
+		ID:    c.ID,
+		State: "stopping",
+	}
+
+	err := client.StopContainer(c.ID, 60)
+	if err != nil {
+		panic(err)
+	}
+
+	err = client.RemoveContainer(docker.RemoveContainerOptions{
+		ID:            c.ID,
 		RemoveVolumes: false,
 		Force:         true,
 	})
 	if err != nil {
 		panic(err)
+	}
+
+	log.WithFields(log.Fields{
+		"container": c.ID,
+	}).Info("stopped")
+	events <- Status{
+		ID:    c.ID,
+		State: "stopped",
 	}
 }
 
@@ -81,7 +131,7 @@ func (c *Command) createContainer() (*docker.Container, error) {
 		Name: "game-1",
 		Config: &docker.Config{
 			AttachStdout: true,
-			Cmd:          []string{c.CmdArgs},
+			Cmd:          strings.Split(c.CmdArgs, " "),
 			Image:        c.Game,
 		},
 	}
@@ -107,15 +157,3 @@ func (c *Command) createContainer() (*docker.Container, error) {
 
 	return container, nil
 }
-
-// func removeContainerByName(name string) err {
-//   client, _ := docker.NewClientFromEnv()
-//
-//   client.ListContainers(docker.ListContainersOptions{
-//
-//   })
-//
-//   client.RemoveContainer(docker.RemoveContainerOptions{
-//     ID: container.ID,
-//   })
-// }

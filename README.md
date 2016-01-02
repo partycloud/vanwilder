@@ -36,7 +36,7 @@ start-game
 
 ```
 
+## Test commands
 
-sudo docker run --name minecraft -p 25565:25565 -id --restart=always \
-  -v minecraft-volume:/data --volume-driver=convoy partycloud/minecraft:ftb-infinity \
-  java -Xms1024m -Xmx2048m -XX:PermSize=128m -jar server.jar nogui
+echo -e '{"command":"start-game", "game":"ubuntu", "cmd-args": "nc -l 25565", "ports": ["25565/tcp"]}' | sudo nc -U /var/run/van.sock
+echo -e '{"command":"stop-game", "id": ""}' | sudo nc -U /var/run/van.sock
